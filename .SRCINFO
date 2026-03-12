@@ -10,8 +10,8 @@ pkgbase = panache-bin
 	provides = panache
 	conflicts = panache
 	source_x86_64 = https://github.com/jolars/panache/releases/download/v2.17.0/panache-x86_64-unknown-linux-gnu.tar.gz
-	sha256sums_x86_64 = 1676d0dd4d2351d514d328978d5942761af44816721811c3d563c616f36be601
+	sha256sums_x86_64 = be3a4151f077fc6811e6a8aee518273b982b0437a5b5e374a216ff90bc1b272b
 	source_aarch64 = https://github.com/jolars/panache/releases/download/v2.17.0/panache-aarch64-unknown-linux-gnu.tar.gz
-	sha256sums_aarch64 = eb8c02829497302b380bdde0450c96145669b3b68ea2821630496ce6f1878a59
+	sha256sums_aarch64 = fb5dfa8a2e036ff9f8a7654c86ad277780ad00114201be1cc77a0a720550ee38
 
 pkgname = panache-bin
