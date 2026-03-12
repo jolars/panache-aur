@@ -25,9 +25,6 @@ package() {
     install -Dm644 completions/panache.fish "$pkgdir/usr/share/fish/vendor_completions.d/panache.fish"
     install -Dm644 completions/_panache "$pkgdir/usr/share/zsh/site-functions/_panache"
 
-    # Systemd user service
-    install -Dm644 panache.service "$pkgdir/usr/lib/systemd/user/panache.service"
-
     # License
     install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
