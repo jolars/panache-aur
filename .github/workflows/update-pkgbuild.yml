@@ -1,0 +1,139 @@
+name: Update PKGBUILD
+
+on:
+  repository_dispatch:
+    types: [new-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to update to (leave empty for latest)"
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-pkgbuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Get release info
+        id: release
+        run: |
+          # Get version from input, client_payload, or fetch latest from GitHub
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ -n "${{ github.event.client_payload.version }}" ]; then
+            VERSION="${{ github.event.client_payload.version }}"
+          else
+            # Fetch latest release from GitHub API
+            VERSION=$(curl -s https://api.github.com/repos/jolars/panache/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
+            echo "Fetched latest version: $VERSION"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Download binary tarballs and compute checksums
+          wget -L "https://github.com/jolars/panache/releases/download/v$VERSION/panache-x86_64-unknown-linux-gnu.tar.gz"
+          wget -L "https://github.com/jolars/panache/releases/download/v$VERSION/panache-aarch64-unknown-linux-gnu.tar.gz"
+
+          SHA256_X64=$(sha256sum panache-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
+          SHA256_ARM64=$(sha256sum panache-aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
+
+          echo "sha256_x64=$SHA256_X64" >> $GITHUB_OUTPUT
+          echo "sha256_arm64=$SHA256_ARM64" >> $GITHUB_OUTPUT
+
+          echo "Downloaded v$VERSION binaries"
+          echo "SHA256 x86_64: $SHA256_X64"
+          echo "SHA256 aarch64: $SHA256_ARM64"
+
+      - name: Determine pkgrel
+        id: pkgrel
+        run: |
+          # Clone AUR repo to check current version
+          git clone https://aur.archlinux.org/panache-bin.git aur-temp || true
+
+          PKGREL=1
+          if [ -f aur-temp/PKGBUILD ]; then
+            AUR_PKGVER=$(grep '^pkgver=' aur-temp/PKGBUILD | cut -d= -f2)
+            AUR_PKGREL=$(grep '^pkgrel=' aur-temp/PKGBUILD | cut -d= -f2)
+            NEW_PKGVER="${{ steps.release.outputs.version }}"
+
+            if [ "$NEW_PKGVER" = "$AUR_PKGVER" ]; then
+              # Same version, increment pkgrel
+              PKGREL=$((AUR_PKGREL + 1))
+              echo "Same version detected, incrementing pkgrel to $PKGREL"
+            else
+              echo "New version detected, using pkgrel=1"
+            fi
+          fi
+
+          echo "pkgrel=$PKGREL" >> $GITHUB_OUTPUT
+          rm -rf aur-temp
+
+      - name: Update PKGBUILD
+        run: |
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.release.outputs.version }}/" PKGBUILD
+          sed -i "s/^pkgrel=.*/pkgrel=${{ steps.pkgrel.outputs.pkgrel }}/" PKGBUILD
+          sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${{ steps.release.outputs.sha256_x64 }}')/" PKGBUILD
+          sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${{ steps.release.outputs.sha256_arm64 }}')/" PKGBUILD
+
+      - name: Test build package
+        run: |
+          # Extract tarballs for testing
+          mkdir -p test-build
+          cd test-build
+          tar -xzf ../panache-x86_64-unknown-linux-gnu.tar.gz
+
+          # Verify expected files exist
+          test -f panache || (echo "Binary not found" && exit 1)
+          test -f LICENSE || (echo "LICENSE not found" && exit 1)
+          test -d man || (echo "man directory not found" && exit 1)
+          test -d completions || (echo "completions directory not found" && exit 1)
+          test -f panache.service || (echo "panache.service not found" && exit 1)
+
+          echo "✓ All expected files present in tarball"
+
+      - name: Install makepkg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pacman-package-manager
+
+      - name: Generate .SRCINFO
+        run: makepkg --printsrcinfo > .SRCINFO
+
+      - name: Validate and build package
+        uses: edlanglois/pkgbuild-action@v1
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          add-paths: |
+            PKGBUILD
+            .SRCINFO
+          commit-message: "chore: update to v${{ steps.release.outputs.version }}"
+          title: "Update to v${{ steps.release.outputs.version }}"
+          body: |
+            Updates PKGBUILD for panache-bin v${{ steps.release.outputs.version }}
+
+            **Release**: https://github.com/jolars/panache/releases/tag/v${{ steps.release.outputs.version }}
+
+            **Changes:**
+            - pkgver: ${{ steps.release.outputs.version }}
+            - pkgrel: ${{ steps.pkgrel.outputs.pkgrel }}
+            - sha256sum (x86_64): `${{ steps.release.outputs.sha256_x64 }}`
+            - sha256sum (aarch64): `${{ steps.release.outputs.sha256_arm64 }}`
+
+            ---
+
+            **Testing checklist before merging:**
+            - [ ] Review PKGBUILD changes
+            - [ ] Verify checksums match GitHub release
+            - [ ] Will auto-push to AUR after merge
+          branch: "update-v${{ steps.release.outputs.version }}"
+          delete-branch: true
