@@ -19,6 +19,7 @@
           packages = [
             pkgs.bashInteractive
             pkgs.pacman
+            pkgs.go-task
           ];
         };
       }
