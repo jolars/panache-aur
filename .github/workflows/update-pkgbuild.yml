@@ -24,6 +24,8 @@ jobs:
       - name: Get release info
         id: release
         run: |
+          set -euo pipefail
+
           # Get version from input, client_payload, or fetch latest from GitHub
           if [ -n "${{ github.event.inputs.version }}" ]; then
             VERSION="${{ github.event.inputs.version }}"
@@ -31,18 +33,19 @@ jobs:
             VERSION="${{ github.event.client_payload.version }}"
           else
             # Fetch latest release from GitHub API
-            VERSION=$(curl -s https://api.github.com/repos/jolars/panache/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
+            VERSION=$(curl -fsSL https://api.github.com/repos/jolars/panache/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
             echo "Fetched latest version: $VERSION"
           fi
+          [ -n "$VERSION" ] || { echo "Failed to determine release version"; exit 1; }
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # Download binary tarballs and compute checksums
-          wget -L "https://github.com/jolars/panache/releases/download/v$VERSION/panache-x86_64-unknown-linux-gnu.tar.gz"
-          wget -L "https://github.com/jolars/panache/releases/download/v$VERSION/panache-aarch64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o panache-x86_64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/v$VERSION/panache-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o panache-aarch64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/v$VERSION/panache-aarch64-unknown-linux-gnu.tar.gz"
 
-          SHA256_X64=$(sha256sum panache-x86_64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
-          SHA256_ARM64=$(sha256sum panache-aarch64-unknown-linux-gnu.tar.gz | cut -d' ' -f1)
+          SHA256_X64=$(sha256sum panache-x86_64-unknown-linux-gnu.tar.gz | awk '{print $1}')
+          SHA256_ARM64=$(sha256sum panache-aarch64-unknown-linux-gnu.tar.gz | awk '{print $1}')
 
           echo "sha256_x64=$SHA256_X64" >> $GITHUB_OUTPUT
           echo "sha256_arm64=$SHA256_ARM64" >> $GITHUB_OUTPUT
