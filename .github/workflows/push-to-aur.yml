@@ -21,8 +21,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
-          printf '%s' "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
+          KEY="${{ secrets.AUR_SSH_KEY }}"
+          if printf '%s' "$KEY" | grep -q '\\n'; then
+            printf '%b' "$KEY" | tr -d '\r' > ~/.ssh/aur
+          else
+            printf '%s' "$KEY" | tr -d '\r' > ~/.ssh/aur
+          fi
           chmod 600 ~/.ssh/aur
+          ssh-keygen -y -f ~/.ssh/aur >/dev/null
           ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
 
           cat > ~/.ssh/config <<EOF
