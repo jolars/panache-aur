@@ -19,27 +19,14 @@ jobs:
 
       - name: Setup SSH for AUR
         run: |
-          set -euo pipefail
           mkdir -p ~/.ssh
-          KEY="${{ secrets.AUR_SSH_KEY }}"
-          write_key_file() {
-            tr -d '\r' > ~/.ssh/aur
-            chmod 600 ~/.ssh/aur
-            ssh-keygen -y -f ~/.ssh/aur >/dev/null 2>&1
-          }
-
-          if ! printf '%s' "$KEY" | write_key_file &&
-             ! printf '%b' "$KEY" | write_key_file &&
-             ! printf '%s' "$KEY" | base64 -d 2>/dev/null | write_key_file; then
-            echo "AUR_SSH_KEY is not a valid private key (raw, escaped \\n, or base64)." >&2
-            exit 1
-          fi
+          echo "${{ secrets.AUR_SSH_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
           ssh-keyscan -t ed25519 aur.archlinux.org >> ~/.ssh/known_hosts
 
           cat > ~/.ssh/config <<EOF
           Host aur.archlinux.org
             IdentityFile ~/.ssh/aur
-            IdentitiesOnly yes
             User aur
           EOF
 
