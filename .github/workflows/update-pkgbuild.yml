@@ -32,9 +32,18 @@ jobs:
           elif [ -n "${{ github.event.client_payload.version }}" ]; then
             VERSION="${{ github.event.client_payload.version }}"
           else
-            # Fetch latest release from GitHub API
-            VERSION=$(curl -fsSL https://api.github.com/repos/jolars/panache/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed -E 's/^panache-v//; s/^v//')
-            echo "Fetched latest version: $VERSION"
+            # Fetch latest matching release tag from GitHub API (exclude parser/other component tags)
+            TAG=$(curl -fsSL "https://api.github.com/repos/jolars/panache/releases?per_page=100" \
+              | grep -E '"tag_name"|"prerelease"' \
+              | paste - - \
+              | grep '"prerelease": false' \
+              | grep 'panache-v' \
+              | head -n1 \
+              | cut -d'"' -f4)
+
+            [ -n "$TAG" ] || { echo "Failed to determine latest panache-v release tag"; exit 1; }
+            VERSION="${TAG#panache-v}"
+            echo "Fetched latest version: $VERSION (tag: $TAG)"
           fi
           [ -n "$VERSION" ] || { echo "Failed to determine release version"; exit 1; }
 
