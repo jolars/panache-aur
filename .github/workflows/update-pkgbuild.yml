@@ -23,35 +23,70 @@ jobs:
 
       - name: Get release info
         id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           # Get version from input, client_payload, or fetch latest from GitHub
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+            RAW="${{ github.event.inputs.version }}"
           elif [ -n "${{ github.event.client_payload.version }}" ]; then
-            VERSION="${{ github.event.client_payload.version }}"
+            RAW="${{ github.event.client_payload.version }}"
           else
-            # Fetch latest matching release tag from GitHub API (exclude parser/other component tags)
-            TAG=$(curl -fsSL "https://api.github.com/repos/jolars/panache/releases?per_page=100" \
-              | grep -E '"tag_name"|"prerelease"' \
-              | paste - - \
-              | grep '"prerelease": false' \
-              | grep 'panache-v' \
-              | head -n1 \
-              | cut -d'"' -f4)
+            RAW=""
+          fi
 
-            [ -n "$TAG" ] || { echo "Failed to determine latest panache-v release tag"; exit 1; }
+          if [ -n "${RAW:-}" ]; then
+            if [[ "$RAW" =~ ^(panache-v|v)[0-9] ]]; then
+              TAG="$RAW"
+              VERSION="${RAW#panache-v}"
+              VERSION="${VERSION#v}"
+            else
+              VERSION="$RAW"
+              TAG=""
+              for CANDIDATE in "panache-v$VERSION" "v$VERSION"; do
+                if gh api "repos/jolars/panache/releases/tags/$CANDIDATE" --jq '
+                  (.assets | map(.name) | index("panache-x86_64-unknown-linux-gnu.tar.gz")) != null and
+                  (.assets | map(.name) | index("panache-aarch64-unknown-linux-gnu.tar.gz")) != null
+                ' 2>/dev/null | grep -qx 'true'; then
+                  TAG="$CANDIDATE"
+                  break
+                fi
+              done
+              [ -n "$TAG" ] || { echo "Could not resolve release tag from version '$VERSION'"; exit 1; }
+            fi
+          else
+            # Fetch latest non-prerelease main panache release (not parser/etc) by required assets.
+            TAG=$(gh api "repos/jolars/panache/releases?per_page=100" --jq '
+              .[]
+              | select((.draft | not) and (.prerelease | not))
+              | select((.tag_name | startswith("v")) or (.tag_name | startswith("panache-v")))
+              | select((.assets | map(.name) | index("panache-x86_64-unknown-linux-gnu.tar.gz")) != null)
+              | select((.assets | map(.name) | index("panache-aarch64-unknown-linux-gnu.tar.gz")) != null)
+              | .tag_name
+            ' | head -n1)
+            [ -n "$TAG" ] || { echo "Failed to determine latest panache release tag"; exit 1; }
             VERSION="${TAG#panache-v}"
+            VERSION="${VERSION#v}"
             echo "Fetched latest version: $VERSION (tag: $TAG)"
           fi
+
+          case "$TAG" in
+            panache-v*) TAG_PREFIX="panache-v" ;;
+            v*) TAG_PREFIX="v" ;;
+            *) echo "Unsupported release tag format: $TAG"; exit 1 ;;
+          esac
+
           [ -n "$VERSION" ] || { echo "Failed to determine release version"; exit 1; }
 
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "tag_prefix=$TAG_PREFIX" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # Download binary tarballs and compute checksums
-          curl -fsSL -o panache-x86_64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/panache-v$VERSION/panache-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSL -o panache-aarch64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/panache-v$VERSION/panache-aarch64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o panache-x86_64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/$TAG/panache-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o panache-aarch64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/$TAG/panache-aarch64-unknown-linux-gnu.tar.gz"
 
           SHA256_X64=$(sha256sum panache-x86_64-unknown-linux-gnu.tar.gz | awk '{print $1}')
           SHA256_ARM64=$(sha256sum panache-aarch64-unknown-linux-gnu.tar.gz | awk '{print $1}')
@@ -59,7 +94,7 @@ jobs:
           echo "sha256_x64=$SHA256_X64" >> $GITHUB_OUTPUT
           echo "sha256_arm64=$SHA256_ARM64" >> $GITHUB_OUTPUT
 
-          echo "Downloaded panache-v$VERSION binaries"
+          echo "Downloaded $TAG binaries"
           echo "SHA256 x86_64: $SHA256_X64"
           echo "SHA256 aarch64: $SHA256_ARM64"
 
@@ -91,6 +126,8 @@ jobs:
         run: |
           sed -i "s/^pkgver=.*/pkgver=${{ steps.release.outputs.version }}/" PKGBUILD
           sed -i "s/^pkgrel=.*/pkgrel=${{ steps.pkgrel.outputs.pkgrel }}/" PKGBUILD
+          sed -i "s|^source_x86_64=.*|source_x86_64=(\"panache-\$pkgver-x86_64-unknown-linux-gnu.tar.gz::\$url/releases/download/${{ steps.release.outputs.tag_prefix }}\$pkgver/panache-x86_64-unknown-linux-gnu.tar.gz\")|" PKGBUILD
+          sed -i "s|^source_aarch64=.*|source_aarch64=(\"panache-\$pkgver-aarch64-unknown-linux-gnu.tar.gz::\$url/releases/download/${{ steps.release.outputs.tag_prefix }}\$pkgver/panache-aarch64-unknown-linux-gnu.tar.gz\")|" PKGBUILD
           sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('${{ steps.release.outputs.sha256_x64 }}')/" PKGBUILD
           sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('${{ steps.release.outputs.sha256_arm64 }}')/" PKGBUILD
 
@@ -127,12 +164,12 @@ jobs:
           add-paths: |
             PKGBUILD
             .SRCINFO
-          commit-message: "chore: update to panache-v${{ steps.release.outputs.version }}"
-          title: "Update to panache-v${{ steps.release.outputs.version }}"
+          commit-message: "chore: update to ${{ steps.release.outputs.tag }}"
+          title: "Update to ${{ steps.release.outputs.tag }}"
           body: |
-            Updates PKGBUILD for panache-bin panache-v${{ steps.release.outputs.version }}
+            Updates PKGBUILD for panache-bin ${{ steps.release.outputs.tag }}
 
-            **Release**: https://github.com/jolars/panache/releases/tag/panache-v${{ steps.release.outputs.version }}
+            **Release**: https://github.com/jolars/panache/releases/tag/${{ steps.release.outputs.tag }}
 
             **Changes:**
             - pkgver: ${{ steps.release.outputs.version }}
@@ -146,5 +183,5 @@ jobs:
             - [ ] Review PKGBUILD changes
             - [ ] Verify checksums match GitHub release
             - [ ] Will auto-push to AUR after merge
-          branch: "update-panache-v${{ steps.release.outputs.version }}"
+          branch: "update-${{ steps.release.outputs.tag }}"
           delete-branch: true
