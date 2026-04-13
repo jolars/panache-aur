@@ -33,7 +33,7 @@ jobs:
             VERSION="${{ github.event.client_payload.version }}"
           else
             # Fetch latest release from GitHub API
-            VERSION=$(curl -fsSL https://api.github.com/repos/jolars/panache/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed 's/^v//')
+            VERSION=$(curl -fsSL https://api.github.com/repos/jolars/panache/releases/latest | grep '"tag_name"' | cut -d'"' -f4 | sed -E 's/^panache-v//; s/^v//')
             echo "Fetched latest version: $VERSION"
           fi
           [ -n "$VERSION" ] || { echo "Failed to determine release version"; exit 1; }
@@ -41,8 +41,8 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
           # Download binary tarballs and compute checksums
-          curl -fsSL -o panache-x86_64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/v$VERSION/panache-x86_64-unknown-linux-gnu.tar.gz"
-          curl -fsSL -o panache-aarch64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/v$VERSION/panache-aarch64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o panache-x86_64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/panache-v$VERSION/panache-x86_64-unknown-linux-gnu.tar.gz"
+          curl -fsSL -o panache-aarch64-unknown-linux-gnu.tar.gz "https://github.com/jolars/panache/releases/download/panache-v$VERSION/panache-aarch64-unknown-linux-gnu.tar.gz"
 
           SHA256_X64=$(sha256sum panache-x86_64-unknown-linux-gnu.tar.gz | awk '{print $1}')
           SHA256_ARM64=$(sha256sum panache-aarch64-unknown-linux-gnu.tar.gz | awk '{print $1}')
@@ -50,7 +50,7 @@ jobs:
           echo "sha256_x64=$SHA256_X64" >> $GITHUB_OUTPUT
           echo "sha256_arm64=$SHA256_ARM64" >> $GITHUB_OUTPUT
 
-          echo "Downloaded v$VERSION binaries"
+          echo "Downloaded panache-v$VERSION binaries"
           echo "SHA256 x86_64: $SHA256_X64"
           echo "SHA256 aarch64: $SHA256_ARM64"
 
@@ -118,12 +118,12 @@ jobs:
           add-paths: |
             PKGBUILD
             .SRCINFO
-          commit-message: "chore: update to v${{ steps.release.outputs.version }}"
-          title: "Update to v${{ steps.release.outputs.version }}"
+          commit-message: "chore: update to panache-v${{ steps.release.outputs.version }}"
+          title: "Update to panache-v${{ steps.release.outputs.version }}"
           body: |
-            Updates PKGBUILD for panache-bin v${{ steps.release.outputs.version }}
+            Updates PKGBUILD for panache-bin panache-v${{ steps.release.outputs.version }}
 
-            **Release**: https://github.com/jolars/panache/releases/tag/v${{ steps.release.outputs.version }}
+            **Release**: https://github.com/jolars/panache/releases/tag/panache-v${{ steps.release.outputs.version }}
 
             **Changes:**
             - pkgver: ${{ steps.release.outputs.version }}
@@ -137,5 +137,5 @@ jobs:
             - [ ] Review PKGBUILD changes
             - [ ] Verify checksums match GitHub release
             - [ ] Will auto-push to AUR after merge
-          branch: "update-v${{ steps.release.outputs.version }}"
+          branch: "update-panache-v${{ steps.release.outputs.version }}"
           delete-branch: true
