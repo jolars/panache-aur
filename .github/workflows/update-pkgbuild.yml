@@ -59,13 +59,14 @@ jobs:
           else
             # Fetch latest non-prerelease main panache release (not parser/etc) by required assets.
             TAG=$(gh api "repos/jolars/panache/releases?per_page=100" --jq '
-              .[]
-              | select((.draft | not) and (.prerelease | not))
-              | select((.tag_name | startswith("v")) or (.tag_name | startswith("panache-v")))
-              | select((.assets | map(.name) | index("panache-x86_64-unknown-linux-gnu.tar.gz")) != null)
-              | select((.assets | map(.name) | index("panache-aarch64-unknown-linux-gnu.tar.gz")) != null)
-              | .tag_name
-            ' | head -n1)
+              [ .[]
+                | select((.draft | not) and (.prerelease | not))
+                | select((.tag_name | startswith("v")) or (.tag_name | startswith("panache-v")))
+                | select((.assets | map(.name) | index("panache-x86_64-unknown-linux-gnu.tar.gz")) != null)
+                | select((.assets | map(.name) | index("panache-aarch64-unknown-linux-gnu.tar.gz")) != null)
+                | .tag_name
+              ][0] // empty
+            ')
             [ -n "$TAG" ] || { echo "Failed to determine latest panache release tag"; exit 1; }
             VERSION="${TAG#panache-v}"
             VERSION="${VERSION#v}"
