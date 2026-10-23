@@ -1,5 +1,7 @@
-
 # panache (AUR)
+
+> [!NOTE]
+> This repo is archived. The AUR package is now maintained in the [official panache repo](https://github.com/jolars/panache).
 
 AUR package for [panache](https://github.com/jolars/panache) - A Pomodoro timer
 with daemon support for waybar.
